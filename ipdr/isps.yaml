@@ -1,0 +1,70 @@
+PTCL:
+  words: [ptcl, pakistan telecommunication, pakistan telecom, pak telecom, paknet, evo, charji, flash fiber]
+  asn: [Pakistan Telecommunication Company Limited, Pakistan Telecom Company Limited, Paknet Limited Merged into PTCL]
+Jazz:
+  words: [jazz, mobilink, warid, pmcl]
+  asn: [PMCL LDI IP TRANSIT, IX Peering for Mobilink and Link Direct International.]
+  mnc: ['01', '07']
+Zong:
+  words: [zong, cmpak, cm pak, china mobile]
+  asn: [CMPak Limited]
+  mnc: ['04']
+Telenor:
+  words: [telenor, djuice]
+  asn: [Telenor Pakistan]
+  mnc: ['06']
+Ufone:
+  words: [ufone, u fone, ptml]
+  asn: []
+  mnc: ['03']
+Nayatel:
+  words: [nayatel, naya tel, naya-tel]
+  asn: [Nayatel Pvt Ltd]
+StormFiber:
+  words: [stormfiber, storm fiber, storm fibre, cybernet, cyber net, cyber internet]
+  asn: [Cyber Internet Services Pvt Ltd.]
+Transworld:
+  words: [transworld, trans world, tw1]
+  asn: [Trans World Enterprise Services Private Limited, Transworld Associates Pvt. Ltd.]
+Wateen:
+  words: [wateen, wimax]
+  asn: [National WiMAXIMS environment]
+Connect:
+  words: [connect communications, connect communication, connect isp, connect broadband]
+  asn: [Connect Communications, Connect Communication]
+Wancom:
+  words: [wancom]
+  asn: [Wancom Pvt Ltd.]
+Z COM:
+  words: [zcom, z com, z-com]
+  asn: [Z COM NETWORKS]
+Fiberish:
+  words: [fiberish]
+  asn: [FIBERISH PVT LTD]
+Fasttel:
+  words: [fasttel, fast tel]
+  asn: [FASTTEL BROADBAND PRIVATE LIMITED]
+InCable:
+  words: [incable, in cable]
+  asn: [IN CABLE INTERNET PRIVATE LIMITED]
+Ebone:
+  words: [ebone]
+  asn: [Ebone Network PVT. Limited]
+SCO:
+  words: [sco, special communication, special communications]
+  asn: [Special Communication Organization]
+Optix:
+  words: [optix]
+  asn: [Optix Pakistan Pvt. Limited]
+Multinet:
+  words: [multinet]
+  asn: [Multinet Pakistan Pvt. Ltd., Multinet Broadband]
+Worldcall:
+  words: [worldcall, world call]
+  asn: [Worldcall Broadband Limited, Worldcall Telecom Ltd.]
+Galaxy Broadband:
+  words: [galaxy broadband]
+  asn: [Galaxy Broadband]
+Supernet:
+  words: [supernet]
+  asn: [Supernet Limited Transit Autonomous System Number]

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IPDR Analyst</title>
+  <script>
+    // set the saved theme before first paint to avoid a flash
+    try { const t = localStorage.getItem("ipdr.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/echarts.min.js" defer></script>
+  <script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="navbar">
+    <button type="button" class="icon-btn nav-menu" id="sidebar-toggle" aria-label="Show conversations" aria-expanded="false"></button>
+    <a class="brand" href="#/chat">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>IPDR Analyst</span>
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#/chat" data-route="chat">Chat</a>
+      <a href="#/explore" data-route="explore">Explore</a>
+      <a href="#/dictionary" data-route="dictionary">Data dictionary</a>
+      <a href="#/terms" data-route="terms">Terms</a>
+      <a href="#/settings" data-route="settings">Settings</a>
+    </nav>
+    <div class="nav-right">
+      <span class="pill" id="db-pill" title="Database">…</span>
+      <a class="pill pill-link" id="model-pill" href="#/settings" title="AI provider and model">…</a>
+      <div class="menu-wrap">
+        <button type="button" class="icon-btn" id="theme-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Theme"></button>
+        <div class="menu" id="theme-menu" role="menu" hidden>
+          <button type="button" role="menuitemradio" data-theme-choice="light">Light</button>
+          <button type="button" role="menuitemradio" data-theme-choice="dark">Dark</button>
+          <button type="button" role="menuitemradio" data-theme-choice="system">Same as system</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar" aria-label="Conversations">
+      <button type="button" class="btn btn-block" id="new-chat"></button>
+      <label class="search">
+        <span class="visually-hidden">Search conversations</span>
+        <input type="search" id="conv-search" placeholder="Search conversations">
+      </label>
+      <div class="conv-list" id="conv-list"></div>
+    </aside>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <main id="main" class="views">
+      <section class="view view-chat" id="view-chat" data-view="chat">
+        <div class="thread" id="thread"></div>
+        <div class="visually-hidden" id="sr-status" role="status" aria-live="polite"></div>
+        <div class="composer-wrap">
+          <form class="composer" id="composer" autocomplete="off">
+            <label class="visually-hidden" for="input">Your question</label>
+            <textarea id="input" rows="1" placeholder="Ask anything about the network records, e.g. most used apps in Karachi last week"></textarea>
+            <button type="button" class="mic-btn" id="mic" aria-label="Speak your question" hidden></button>
+            <button type="submit" class="send-btn" id="send" aria-label="Send"></button>
+          </form>
+          <p class="composer-hint" id="composer-hint">Enter to send, Shift+Enter for a new line. Answers can be wrong: check the assumptions shown with each answer.</p>
+        </div>
+      </section>
+
+      <section class="view page" id="view-explore" data-view="explore" hidden></section>
+      <section class="view page" id="view-dictionary" data-view="dictionary" hidden></section>
+      <section class="view page" id="view-terms" data-view="terms" hidden></section>
+      <section class="view page" id="view-settings" data-view="settings" hidden></section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

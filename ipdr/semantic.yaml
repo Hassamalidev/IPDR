@@ -1,0 +1,710 @@
+table: wms_dist.ntc_ssl_log
+engine_notes: >
+  ClickHouse MergeTree, ~52 million rows per day, ~1.5 billion rows in total.
+  Partitioned by day of start_time (UTC). Sorted by (start_time, subscriber_id, log_id),
+  so filters on start_time are cheap and filters on subscriber_id inside a time range
+  are fast. Filters on imei, imsi, client_ip or server_ip read every row in the
+  time range (slower, but fine for a few days).
+
+grain: >
+  One row = one network flow (a connection) made by one subscriber (mobile or fixed-line / broadband) to one
+  server. It is not one row per user or per session. Count users with the users metric (identified
+  subscribers), never count(). One identified subscriber has one ISP (client_asn), one address (loc), one
+  city (client_location) and one IP (client_ip) per day, so any(...) gives them per subscriber.
+
+data_model:
+  subscriber: >
+    An identified person or account: subscriber_id without '_'. About 120,000 of them, the SAME ones every
+    day (each is active every day, ~200 connections and ~70 apps a day, median ~20 MB a day). Each has exactly
+    one ISP (client_asn), one address (loc + geo), one city (client_location) and one fixed IP (client_ip,
+    never shared). Mobile numbers (92...) also have one SIM (imsi, 1:1, with mnc and usr_loc_info) and a
+    handset (imei; 3.8% of handsets are used by more than one subscriber), and a serving cell (cid, lac).
+  unidentified_record: >
+    subscriber_id '<client_ip>_<client_port>': about half of all rows. Its IP never belongs to an identified
+    subscriber, so it cannot be linked to a person. It is traffic (connections, volume), never users.
+  connection: >
+    One row: start_time/end_time (Unix s), duration (ms, median ~19 s), bytes and packets up (c2s = from the
+    subscriber) and down (s2c = to the subscriber; downlink is ~3x uplink), l4_protocol (TCP 90%, UDP 10% =
+    QUIC video and calls), server_port (443 HTTPS; 853 DNS-over-TLS; 5228 Android push; 5223 Apple push; 993
+    mail). s2c = 0 on ~15% of rows (no reply, mostly blocked or failed).
+  app: >
+    app_label (~430) is what the classifier recognised; each label belongs to exactly one app_category (19).
+    One app can have several labels (app_concepts); background labels (SSL, GoogleAPI...) are not apps people
+    choose. Kinds of app (VPN, adult, gambling...) are app_concepts.
+  website: >
+    requested_server = the hostname asked for (TLS SNI), ~7,500 a day; about 90% map to one app_label. Empty for
+    QUIC/UDP video, WhatsApp and calls. Use it for "website", "domain", "site", "URL", "who visited X".
+  server: >
+    server_ip, server_port, server_asn (the organisation that owns the server: 'Google LLC', 'Facebook, Inc.'),
+    server_location ('City Country' or just 'Country': endsWith(server_location, 'Russia') = servers in
+    Russia), server_geo. Use for "servers", "hosted in", "traffic to <country/company>".
+  network: >
+    client_asn = the subscriber's ISP (98% filled). mcc/mnc = SIM operator (mobile numbers only).
+  place: >
+    client_location = city ('<City> Pakistan'; 'Pakistan' = unknown city; 'Punjab Pakistan', 'Sindh Pakistan',
+    'Khyber Pakhtunkhwa Pakistan' = province only; a few foreign places). client_geo = that city's centre (one
+    point per city). loc = the subscriber's address, always 4 parts '<House N | Cell site N>, <Street N |
+    Road>, <Area>, <City> Pakistan'; geo = its coordinates. Areas and roads repeat in every city.
+  blocking: block_type > 0 = blocked by the firewall (see the column).
+  probe: cap_ip = the capture probe that recorded the row (55 probes, each sees every city). Not a place.
+  time_pattern: >
+    The same ~52.3 million rows every full day (no growth or weekly cycle; the first and last days are
+    partial). Busiest hours 18:00-21:00, quietest 01:00-04:00 Pakistan time.
+
+question_guide:
+  how_to_read_a_question: >
+    Break every question into five parts before writing SQL: (1) ROWS - what one row of the answer is (an app,
+    a subscriber, a city, an ISP, a website, an hour, a day, or one total); (2) MEASURE - users, connections,
+    volume, duration, or stored details; (3) FILTERS - every app, kind of app, ISP, place, website, number,
+    IP, server country or block status the question names; (4) PERIOD; (5) ORDER and LIMIT. The understood
+    question states all five. Each filter the question names must be in the WHERE clause.
+  words_to_measures:
+    how many people / users / log / kitne log: users metric
+    how much data / usage / traffic / consumption / GB / MB / kitna data: volume_gb (upload = c2s_byte_num, download = s2c_byte_num)
+    how many times / how often / hits / sessions / connections / visits / kitni baar: count() AS connections
+    how long / time spent / duration / kitni der: sum(duration) / 3.6e6 AS hours (per connection - avg(duration) / 1000 AS avg_seconds)
+    most used / popular / top (things): users, then connections, plus volume_gb
+    top / heavy / biggest users (people): one row per subscriber by volume in MB (see metrics.top_subscribers)
+    when / peak / busiest time / kis waqt: GROUP BY hour of day
+    trend / daily / per day / roz: GROUP BY day; weekly - toStartOfWeek; compare periods - one column per period with countIf/sumIf
+    share / percent / hissa: measure / sum(measure) OVER () (never for users, because one user is in many groups)
+    ratio / X times / how many times more / kitne guna / guna zyada: one number, sum(a) / sum(b) (download to upload - sum(s2c_byte_num) / sum(c2s_byte_num))
+    average per user / per person / avg / ausat: one number unless per day or per city is asked - identified traffic / identified users
+    did not use / never used / nahi chalaya: decided per person - GROUP BY subscriber_id HAVING countIf(...) = 0, then count those
+    app + calls / call minutes / voice: the app's call label only (WhatsApp_VoIP, IMO_VoIP, SnapChat_VoIP)
+    first seen / last seen / kab: min(start_time) / max(end_time), shown with toDateTime(..., 'Asia/Karachi')
+    who / which users / kis ne: list of identified subscribers
+    where / which city / kahan: GROUP BY client_location (or loc for addresses)
+    blocked / band / ban: block_type > 0
+    share of blocked / blocked share: 100 * countIf(block_type > 0) / count() (block_type is a code - never sum it)
+    share of THEIR own traffic that is upload (per city, per app): sum(c2s_byte_num) / sum(c2s_byte_num + s2c_byte_num) per group, not OVER ()
+    same phone / same handset / same device as <number>: same imei - imei IN (SELECT imei ... WHERE that number AND imei != '') AND not that number
+    IPv6 / IPv4 subscribers: position(client_ip, ':') > 0 / = 0 (the subscriber's address, not server_ip)
+    north / south / latitude / east / west / longitude: geo is 'lon,lat' - lat = toFloat64OrNull(splitByChar(',', geo)[2]), lon = [1]
+    connections from abroad / foreign places users come from: client_location (not ending in 'Pakistan', not ''); server_location is where servers are
+    only the province is known: client_location IN ('Punjab Pakistan', 'Sindh Pakistan', 'Khyber Pakhtunkhwa Pakistan')
+    account codes (not phone numbers): position(subscriber_id, '_') = 0 AND NOT match(subscriber_id, '^(92[0-9]{10}|03[0-9]{9})$')
+    a named category (Streaming category, Game category, IM category): app_category = '<name>' (every app in it)
+    ports: Apple push = server_port 5223, Android push = 5228, IMAP over SSL = 993, DNS over TLS = 853, source port = client_port
+    total time / total hours / in total: sum over all rows, never divided by users
+  identifiers_people_type:
+    phone number (0325-3047295, +92..., 92...): subscriber_id IN ('923253047295', '03253047295')
+    account code (AJR37134768, acct56321665, user11433910, fiber45060543, 292022gyxuk): subscriber_id = 'AJR37134768'
+    IP 100.64.x.x - 100.127.x.x (carrier NAT) or 2001:db8:...: client_ip (one subscriber per IP), and any other public IP is server_ip
+    15 digits starting 410: imsi (other 15 digits are imei)
+    a hostname (api.vk.ru, facebook.com): requested_server (= for the host, endsWith(requested_server, '.host') for subdomains)
+
+time:
+  timezone: Asia/Karachi
+  rules:
+    - start_time, end_time and recv_time are Unix timestamps in seconds (UInt32), stored in UTC.
+    - Users mean Pakistan time (Asia/Karachi, UTC+5). Always convert in both directions.
+    - "Filter: start_time >= toUnixTimestamp('2026-11-01 00:00:00', 'Asia/Karachi') AND start_time < toUnixTimestamp('2026-11-02 00:00:00', 'Asia/Karachi')"
+    - "Day:  toDate(toDateTime(start_time, 'Asia/Karachi')) AS day"
+    - "Hour: toStartOfHour(toDateTime(start_time, 'Asia/Karachi')) AS hour"
+    - "Hour of day (0-23): toHour(toDateTime(start_time, 'Asia/Karachi')) AS hour_of_day"
+    - "Show a timestamp: toDateTime(start_time, 'Asia/Karachi')"
+    - Use half-open ranges (>= start, < end).
+    - '"Last N days" means the N full days that end at the last complete day in the data, not today. Say which dates you used.'
+    - The newest day in the data is usually incomplete. Do not include it in comparisons between days unless the user asks.
+
+metrics:
+  users:
+    sql: "uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0)"
+    note: >
+      Identified subscribers only. When the network could not identify the subscriber (about 45% of
+      records), subscriber_id holds '<client_ip>_<port>' instead, which is different for almost every
+      record, so plain uniq(subscriber_id) overcounts users many times over. Always use this definition
+      and never plain uniq(subscriber_id). An exact distinct count (uniqExactIf), so figures match a hand count.
+  unidentified_connections:
+    sql: "countIf(position(subscriber_id, '_') > 0)"
+    note: Records with no identified subscriber. Report it when coverage matters.
+  connections:
+    sql: count()
+    note: Number of flows.
+  volume_gb:
+    sql: round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2)
+    note: Total data in GB (10^9 bytes). Uplink only = c2s_byte_num, downlink only = s2c_byte_num. For one subscriber, MB (1e6) reads better.
+  duration_s:
+    sql: duration / 1000
+    note: duration is stored in milliseconds.
+  top_subscribers: >
+    "Top N users / subscribers / numbers" (of an app, an ISP, a city, a site...) asks for a LIST OF PEOPLE:
+    one row per identified subscriber, SELECT subscriber_id, volume_gb, connections ... WHERE
+    position(subscriber_id, '_') = 0 AND <filters> GROUP BY subscriber_id ORDER BY sum(c2s_byte_num +
+    s2c_byte_num) DESC LIMIT N. One person's volume is shown in MB (KB for a single website).
+    Rank by data volume unless the question names connections or time. Never put the users metric in a
+    query grouped by subscriber_id: it is always 1. "Top 10 apps by users" is a ranking of apps, not people.
+  most_used_default: >
+    "Most used" is ambiguous. Default to users (identified subscribers), ranked by users and then by
+    connections to break ties. For rankings, also return connections and volume_gb as extra columns so
+    the user can compare. State the measure in the assumptions. If many rows share the same user count,
+    say so in the explanation: the ranking then rests on connections.
+
+location:
+  summary: >
+    There are two different location sources with very different coverage. Pick by the level the
+    user asks for and always say which one you used.
+  city_level:
+    column: client_location
+    format: "'<City> Pakistan', e.g. 'Karachi Pakistan', 'Lahore Pakistan', 'Islamabad Pakistan'"
+    coverage: Every row. About 165 values.
+    caveats:
+      - Values 'Pakistan' and 'Punjab Pakistan' mean the city is unknown. Leave them out of city rankings.
+      - client_geo holds the city centre as 'lon,lat'.
+    use_for: Cities, and the country as a whole.
+  street_or_cell_level:
+    columns:
+      loc: "The subscriber's ADDRESS: a house address 'House 1368, Street 7, Model Town, Rawalpindi Pakistan' (fixed line) or the serving cell site 'Cell site 32, Link Road, Scheme 1, Karachi Pakistan' (mobile). Its city always equals client_location."
+      geo: "'lon,lat' of that address. lon = toFloat64OrNull(splitByChar(',', geo)[1]), lat = toFloat64OrNull(splitByChar(',', geo)[2])"
+      cid: Cell ID (mobile numbers only). NOT unique on its own - the same cid exists in different location areas, so a cell is (lac, cid) together - GROUP BY lac, cid.
+      lac: Location area code (mobile numbers only). imei, imsi, lac and cid are blank on some rows of a mobile subscriber - read them with anyIf(imei, imei != '') and filter imei != '' in lookups.
+      usr_loc_info: Raw user-location (ULI) hex from the mobile network (mobile numbers only)
+    coverage: >
+      loc and geo are filled for every identified subscriber and empty for unidentified records
+      ('<ip>_<port>', about 53% of rows). cid, lac and usr_loc_info exist only for mobile numbers (about
+      30% of rows). Area results describe identified subscribers; say so as a Coverage assumption.
+    how_to_filter: >
+      Neighbourhood names appear inside loc. Match the area and the city:
+      loc ILIKE '%Model Town%' AND loc ILIKE '%Lahore%'. Several cities have areas with the same
+      name (Model Town, Satellite Town, Phase 1), so ask or assume the city if none is given.
+    use_for: Neighbourhoods, roads, cell sites, maps.
+network:
+  isp:
+    column: client_asn
+    meaning: >
+      The subscriber's ISP / network provider, filled on about 98% of rows (about 270 values). Every ISP or
+      operator name in a question (PTCL, Nayatel, StormFiber, Jazz, Zong, Telenor...) filters client_asn with
+      the exact stored names in isp_names below; find_values on client_asn for any other provider. "ISP",
+      "network", "provider", "internet company" and "operator" all mean client_asn. Breakdown by ISP: GROUP
+      BY client_asn.
+  sim_operator:
+    columns: [mcc, mnc]
+    meaning: >
+      The SIM's home operator code. Only for mobile numbers (about 30% of rows). Use it only when the question
+      says SIM, mnc or operator code, or for Ufone (no client_asn entry). mcc is '410' (Pakistan) or blank - blank means no SIM data, never a foreign SIM (there are no foreign SIMs in the data); mnc 01/07 = Jazz,
+      03 = Ufone, 04 = Zong, 06 = Telenor. Add a Coverage assumption when used.
+
+columns:
+  log_id: Unique record ID (String).
+  start_time: Flow start, Unix seconds UTC. Always filter on it.
+  end_time: Flow end, Unix seconds UTC.
+  recv_time: When the record reached the system, Unix seconds UTC.
+  duration: Flow duration in milliseconds (UInt64).
+  cap_ip: IP of the capture probe that recorded the flow.
+  subscriber_id: >-
+    Subscriber identity (String). Four forms. (1) Mobile numbers in international form '923253047295' (these
+    carry imsi, imei, mcc, mnc, lac, cid). (2) Numbers in national form '03253047295'. A number is stored in
+    ONE of the two forms, so a typed 0325-3047295 must match both: subscriber_id IN ('923253047295',
+    '03253047295'). (3) Account codes in several styles: 'AJR37134768', 'BZ58568609', 'GBQJ05629017',
+    'acct56321665', 'user11433910', 'fiber45060543', 'bb90958732', '292022gyxuk', '103046pkm'. (4)
+    '<client_ip>_<port>', e.g. '100.67.126.11_17005', when the subscriber was not identified (about 53% of
+    records, different on almost every record). (1)-(3) are identified subscribers; count users with the
+    users metric and list people only with position(subscriber_id, '_') = 0.
+  imsi: SIM identity (String, 15 digits, starts with 410 for Pakistan). Mobile numbers only.
+  imei: Handset identity (String, 15 digits). Mobile numbers only; sometimes empty on a record.
+  client_ip: Subscriber's IP (carrier-grade NAT 100.64.x.x or IPv6). One identified subscriber has one IP a day.
+  client_port: Subscriber-side port.
+  client_location: City of the subscriber, see location.city_level.
+  client_geo: City centre 'lon,lat'.
+  client_asn: "The subscriber's ISP / network provider, e.g. 'Pakistan Telecommunication Company Limited' (PTCL), 'Nayatel Pvt Ltd', 'CMPak Limited' (Zong). See network.isp and isp_names."
+  server_ip: Server IP address.
+  server_port: Server port (443 = HTTPS, 80 = HTTP).
+  server_location: Server city and country, e.g. 'Mesa United States'. Can be empty.
+  server_geo: Server 'lon,lat'. Can be empty.
+  server_asn: Organisation that owns the server IP, e.g. 'Cloudflare, Inc.', 'Apple Inc.', 'Google LLC'.
+  requested_server: "Website / domain / hostname the subscriber asked for (TLS SNI), e.g. 'api.vk.ru'. Empty on about 8% of rows (QUIC/UDP video, WhatsApp, Google Meet): use app_label for those."
+  app_category: One of 19 categories, see value_lists.
+  app_label: Application name from traffic classification, about 430 values, e.g. 'TikTok', 'WhatsAPP', 'Youtube_QUIC_Video'.
+  l4_protocol: TCP or UDP.
+  c2s_pkt_num: Packets uplink (subscriber to server).
+  s2c_pkt_num: Packets downlink.
+  c2s_byte_num: Bytes uplink.
+  s2c_byte_num: Bytes downlink.
+  block_type: >-
+    0 = allowed. 1, 2, 3 = blocked by the firewall (about 1.3% of rows); "blocked" means block_type > 0.
+    Likely meanings, read from the data and not confirmed by documentation: 1 = domain / app block (about 86%
+    of blocked rows; e.g. VK, Telegram, NordVPN, Xhamster), 2 = TCP drop on a small set of server IPs (QQ,
+    Pornhub, Cloudflare ECH), 3 = UDP / QUIC protocol block. Show the code as a column when it helps, and
+    call the meanings "likely".
+  mcc: Mobile country code of the SIM, see network.sim_operator.
+  mnc: SIM operator code, see network.sim_operator. Not the ISP.
+  lac: See location.street_or_cell_level.
+  cid: See location.street_or_cell_level.
+  loc: See location.street_or_cell_level.
+  geo: See location.street_or_cell_level.
+  usr_loc_info: See location.street_or_cell_level.
+
+empty_columns:
+  note: Always empty or zero. Never use them, and tell the user the data does not contain this if asked.
+  list: [direction, stream_dir, action, l7_protocol, data_center, address_type, schema_type, client_type,
+         version, user_agent, ssl_con_latency, ssl_ja3_fingerprint, ssl_ja3_hash, ssl_cert_issuer,
+         ssl_cert_subject, device_vendor, device_model, is_roaming, sessions, first_ttl,
+         establish_latency, processing_time, egress_link_id, ingress_link_id, device_id]
+
+value_lists:
+  app_category: [Web_Browsing, Tunneling, Streaming, Email, Game, Software_Update, IM, Network_Storage,
+                 VoIP, HTTP_Video, File_Access_Protocol, Attack, Network_Administration,
+                 Remote_Connectivity, HTTP_Download, Wireless, Stock, P2P_Video, DB]
+  top_app_labels: [TikTok, Facebook, WhatsAPP, Youtube_QUIC_Video, SnapChat, Roblox, AppleiCloud,
+                   Youtube_Others, AppleMap, GoogleMeet, TikTok_NonHTTP_Video, googleplay, WEBMAIL_GMAIL,
+                   IMO, Samsung, Itunes, ChatGPT, GoogleSearch_Encrypted, Vivo_AppStore, UCWeb, Instagram,
+                   Office, Spotify, Netflix, Shopify, FreeFire, TikTok_Live, Youtube_SSL_Video]
+  app_families: >
+    One app can have several labels (TikTok, TikTok_NonHTTP_Video, TikTok_Live, TikTok_Upload,
+    TikTok_OpenLive; Youtube_QUIC_Video, Youtube_Others, Youtube_SSL_Video). When the user names an app, use find_values on app_label to
+    get every label of that app and filter with IN (...). Unless the user asks for a breakdown,
+    group them under one name with multiIf or if.
+  generic_labels:
+    note: >
+      Background or infrastructure traffic, not an app a person chooses to open. Leave these out of
+      "most used app" style rankings by default and say so in the assumptions. Include them when
+      the user asks about all traffic, a specific one of them, or data volume in total.
+    list: [SSL, QUIC_AwareData, GoogleAPI, Google_Common, Google_Common_Login, Google_Common_Upload,
+           Google_Gstatic, Crashlytics, Amazon_SSL, AmazonS3, Aliyun, Apple_Service, GoogleAdsense,
+           Vungle, Liftoff, QQ_Common_HTTP, Yandex_Common]
+
+query_rules:
+  - Only SELECT queries on wms_dist.ntc_ssl_log. No other tables, no table functions, no SETTINGS or FORMAT clause.
+  - Every query must filter start_time to a range. If the user gives no period, use the last 7 full days and say so.
+  - Aggregate in SQL. Return at most a few hundred rows; rankings normally return the top 20.
+  - Give every computed column a short snake_case alias (users, connections, volume_gb, day, hour_of_day, city, app).
+  - Order the result the way it should be read (rankings by the measure descending, time ascending).
+  - Volume and connections of apps, places, ISPs, websites or times count EVERY record. Never add position(subscriber_id, '_') = 0 to the WHERE clause for them (it drops half of all traffic); the users measure already leaves unidentified records out. Use that WHERE condition only for lists of people and per-user values (data per user = identified traffic / users).
+  - A share or percentage keeps the WHOLE in the WHERE clause and puts the part in the numerator - 100 * sumIf(c2s_byte_num + s2c_byte_num, client_asn IN ('CMPak Limited')) / sum(c2s_byte_num + s2c_byte_num). Filtering the WHERE to the part gives 100%.
+  - Questions with total, how much or how many and no per / by / each / which ask for ONE row, with no GROUP BY.
+  - City rankings leave out values that are not a city - client_location NOT IN ('Pakistan', 'Punjab Pakistan', 'Sindh Pakistan', 'Khyber Pakhtunkhwa Pakistan', '').
+  - A breakdown by ISP groups by brand (isp_names: breakdown by ISP), so PTCL's three stored names and Jazz's two are one row each.
+  - Pick the unit that fits the size, so values never show as 0.00 - GB for a city or an app over days, MB for one subscriber, KB for one website per person. ORDER BY the unrounded expression (sum(c2s_byte_num + s2c_byte_num)), never a rounded alias, or small values tie and the order is arbitrary.
+  - For time series, the time column comes first, then an optional breakdown column (at most 8 values), then the measure.
+  - For maps, return lon and lat columns as Float64 plus a label column and one measure.
+  - Use ILIKE for text matching on loc, requested_server and server_asn. Use exact = or IN for app_label, app_category, client_location and client_asn after you have checked the values (isp_names or find_values).
+  - Return subscriber lists (subscriber_id, imsi, imei) only when the question asks for people ("top users", "who used", "which numbers") or about specific subscribers; then only identified ones (position(subscriber_id, '_') = 0).
+  - Rankings of websites leave out records with no hostname (requested_server != ''); rankings of ISPs leave out client_asn = ''.
+
+examples:
+  - question: Most used apps in Karachi in the last 10 days
+    notes: City level, so client_location. Generic labels excluded. Data ends 10 Nov, so the last 10 full days are 31 Oct to 9 Nov.
+    sql: |
+      SELECT app_label AS app,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-10-31 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Karachi Pakistan'
+        AND app_label NOT IN ('SSL', 'QUIC_AwareData', 'GoogleAPI', 'Google_Common', 'Google_Common_Login',
+                              'Google_Common_Upload', 'Google_Gstatic', 'Crashlytics', 'Amazon_SSL', 'AmazonS3',
+                              'Aliyun', 'Apple_Service', 'GoogleAdsense', 'Vungle', 'Liftoff', 'QQ_Common_HTTP',
+                              'Yandex_Common')
+      GROUP BY app
+      ORDER BY users DESC, connections DESC
+      LIMIT 20
+
+  - question: Daily TikTok users in Lahore during the first week of November
+    notes: All five TikTok labels count as TikTok (LIKE 'TikTok%'). Time column first.
+    sql: |
+      SELECT toDate(toDateTime(start_time, 'Asia/Karachi')) AS day,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-01 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-08 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Lahore Pakistan'
+        AND app_label LIKE 'TikTok%'
+      GROUP BY day
+      ORDER BY day
+
+  - question: At what time of day is streaming heaviest? (5 November)
+    sql: |
+      SELECT toHour(toDateTime(start_time, 'Asia/Karachi')) AS hour_of_day,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-05 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-06 00:00:00', 'Asia/Karachi')
+        AND app_category = 'Streaming'
+      GROUP BY hour_of_day
+      ORDER BY hour_of_day
+
+  - question: Top apps in Model Town, Lahore this week
+    notes: Neighbourhood level, so loc. Covers only subscribers with location data; say so.
+    sql: |
+      SELECT app_label AS app,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND loc ILIKE '%Model Town%' AND loc ILIKE '%Lahore%'
+        AND app_label NOT IN ('SSL', 'QUIC_AwareData', 'GoogleAPI', 'Google_Common', 'Google_Common_Login',
+                              'Google_Common_Upload', 'Google_Gstatic', 'Crashlytics', 'Amazon_SSL', 'AmazonS3',
+                              'Aliyun', 'Apple_Service', 'GoogleAdsense', 'Vungle', 'Liftoff', 'QQ_Common_HTTP',
+                              'Yandex_Common')
+      GROUP BY app
+      ORDER BY users DESC, connections DESC
+      LIMIT 20
+
+  - question: What did 0325-3047295 use on 5 November?
+    notes: A typed number is stored as 92... or as 03..., so match both forms. A specific subscriber, so per-subscriber detail is fine.
+    sql: |
+      SELECT app_label AS app,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e6, 1) AS volume_mb,
+             toDateTime(min(start_time), 'Asia/Karachi') AS first_seen,
+             toDateTime(max(end_time), 'Asia/Karachi') AS last_seen
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-05 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-06 00:00:00', 'Asia/Karachi')
+        AND subscriber_id IN ('923253047295', '03253047295')
+      GROUP BY app
+      ORDER BY connections DESC
+
+  - question: Show the busiest locations in Islamabad on a map (5 November)
+    notes: Map, so lon and lat columns.
+    sql: |
+      SELECT any(loc) AS site,
+             toFloat64OrNull(splitByChar(',', any(geo))[1]) AS lon,
+             toFloat64OrNull(splitByChar(',', any(geo))[2]) AS lat,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-05 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-06 00:00:00', 'Asia/Karachi')
+        AND loc ILIKE '%Islamabad%' AND geo != ''
+      GROUP BY cid
+      ORDER BY users DESC
+      LIMIT 200
+
+  - question: Compare WhatsApp, TikTok and Facebook users across Karachi, Lahore and Islamabad (5 November)
+    notes: Two categories and one measure, so the result suits a grouped bar or a heatmap.
+    sql: |
+      SELECT replaceOne(client_location, ' Pakistan', '') AS city,
+             multiIf(app_label LIKE 'TikTok%', 'TikTok', app_label = 'WhatsAPP', 'WhatsApp', 'Facebook') AS app,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-05 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-06 00:00:00', 'Asia/Karachi')
+        AND client_location IN ('Karachi Pakistan', 'Lahore Pakistan', 'Islamabad Pakistan')
+        AND (app_label LIKE 'TikTok%' OR app_label IN ('WhatsAPP', 'Facebook'))
+      GROUP BY city, app
+      ORDER BY city, users DESC
+
+  - question: Top 10 WhatsApp Nayatel users from Islamabad last week
+    notes: A list of people, so one row per identified subscriber ranked by volume. One person's volume is MB. Order by the unrounded sum. Nayatel is an ISP, so client_asn. Never count users per subscriber.
+    sql: |
+      SELECT subscriber_id,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e6, 2) AS volume_mb,
+             count() AS connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND position(subscriber_id, '_') = 0
+        AND client_location = 'Islamabad Pakistan'
+        AND client_asn IN ('Nayatel Pvt Ltd')
+        AND app_label IN ('WhatsAPP', 'WhatsAPP_Web', 'WhatsApp_Login', 'WhatsApp_VoIP')
+      GROUP BY subscriber_id
+      ORDER BY sum(c2s_byte_num + s2c_byte_num) DESC
+      LIMIT 10
+
+  - question: Show the address and ISP of subscriber 923869624946
+    notes: Stored details of one subscriber. loc is the address (house or serving cell site), client_asn the ISP. Every stored value is listed, because a few IDs carry two addresses or ISPs. Follow-ups such as "address of this user" use the subscriber_id from the earlier answer.
+    sql: |
+      SELECT subscriber_id,
+             arrayStringConcat(arraySort(groupUniqArrayIf(loc, loc != '')), ' | ') AS address,
+             arrayStringConcat(arraySort(groupUniqArrayIf(client_asn, client_asn != '')), ' | ') AS isp,
+             arrayStringConcat(arraySort(groupUniqArrayIf(client_location, client_location != '')), ' | ') AS city,
+             arrayStringConcat(arraySort(groupUniqArrayIf(geo, geo != '')), ' | ') AS geo
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND subscriber_id IN ('923869624946')
+      GROUP BY subscriber_id
+
+  - question: Which ISPs have the most users in Lahore last week
+    notes: ISP means client_asn. Ranking of ISPs, so the users metric is right here.
+    sql: |
+      SELECT client_asn AS isp,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Lahore Pakistan'
+        AND client_asn != ''
+      GROUP BY isp
+      ORDER BY users DESC, connections DESC
+      LIMIT 20
+
+  - question: Top blocked websites last week
+    notes: Blocked means block_type > 0. Records with no hostname are left out of a ranking of websites.
+    sql: |
+      SELECT requested_server AS website,
+             count() AS blocked_connections,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND block_type > 0
+        AND requested_server != ''
+      GROUP BY website
+      ORDER BY blocked_connections DESC
+      LIMIT 20
+
+  - question: Who accessed api.vk.ru the most last week
+    notes: A list of people for one website. Identified subscribers only. Visits are counted in connections; one site's volume per person is kilobytes, so KB.
+    sql: |
+      SELECT subscriber_id,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e3, 1) AS volume_kb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND position(subscriber_id, '_') = 0
+        AND requested_server = 'api.vk.ru'
+      GROUP BY subscriber_id
+      ORDER BY connections DESC
+      LIMIT 20
+
+  - question: Activity timeline of subscriber 923869624946 on 9 November (each app, when, how much)
+    notes: One subscriber over time. Per-hour rows per app; times in Pakistan time.
+    sql: |
+      SELECT toStartOfHour(toDateTime(start_time, 'Asia/Karachi')) AS hour,
+             app_label AS app,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e6, 2) AS volume_mb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-09 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND subscriber_id IN ('923869624946')
+      GROUP BY hour, app
+      ORDER BY hour, connections DESC
+
+  - question: Which websites did 0325-3047295 visit last week and how often
+    notes: Websites of one person, so requested_server grouped; a typed number matches both stored forms.
+    sql: |
+      SELECT requested_server AS website,
+             count() AS connections,
+             toDateTime(min(start_time), 'Asia/Karachi') AS first_seen,
+             toDateTime(max(end_time), 'Asia/Karachi') AS last_seen
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND subscriber_id IN ('923253047295', '03253047295')
+        AND requested_server != ''
+      GROUP BY website
+      ORDER BY connections DESC
+      LIMIT 50
+
+  - question: Who was using IP 100.64.55.35 last week
+    notes: A carrier-NAT client IP belongs to one identified subscriber. Show the subscriber and their details.
+    sql: |
+      SELECT subscriber_id,
+             arrayStringConcat(arraySort(groupUniqArrayIf(loc, loc != '')), ' | ') AS address,
+             arrayStringConcat(arraySort(groupUniqArrayIf(client_asn, client_asn != '')), ' | ') AS isp,
+             count() AS connections,
+             toDateTime(min(start_time), 'Asia/Karachi') AS first_seen,
+             toDateTime(max(end_time), 'Asia/Karachi') AS last_seen
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_ip = '100.64.55.35'
+      GROUP BY subscriber_id
+      ORDER BY connections DESC
+
+  - question: Which handsets (IMEI) are used by more than one subscriber
+    notes: Shared devices or SIM swaps. imei is only on mobile numbers and sometimes empty, so imei != ''.
+    sql: |
+      SELECT imei,
+             uniq(subscriber_id) AS subscribers,
+             groupUniqArray(5)(subscriber_id) AS example_subscribers,
+             count() AS connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND imei != ''
+      GROUP BY imei
+      HAVING subscribers > 1
+      ORDER BY subscribers DESC, connections DESC
+      LIMIT 50
+
+  - question: Users who used both TikTok and VPN apps last week
+    notes: Two conditions on the same person, so group by subscriber and keep those with both (countIf > 0 for each). VPN is the vpn_proxy concept, every label.
+    sql: |
+      SELECT subscriber_id,
+             countIf(app_label LIKE 'TikTok%') AS tiktok_connections,
+             countIf(app_label IN ('NordVPN', 'SurfsharkVPN', 'ZenmateVPN', 'PrivateVPN', 'WindscribeVPN', 'ProtonVPN', 'HolaVPN', 'ExpressVPN', 'VPNSuperUnlimitedProxy', 'Cloudflare_Warp', 'SuperVPN', 'TurboVPN', 'TouchVPN', 'CyberGhost', 'VyprVPN', 'VpnMaster', 'AnchorFree', 'HotSpot', 'AlohaMobile', 'iCloudPrivateRelay', 'OperaMini_Socks')) AS vpn_connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND position(subscriber_id, '_') = 0
+        AND (app_label LIKE 'TikTok%' OR app_label IN ('NordVPN', 'SurfsharkVPN', 'ZenmateVPN', 'PrivateVPN', 'WindscribeVPN', 'ProtonVPN', 'HolaVPN', 'ExpressVPN', 'VPNSuperUnlimitedProxy', 'Cloudflare_Warp', 'SuperVPN', 'TurboVPN', 'TouchVPN', 'CyberGhost', 'VyprVPN', 'VpnMaster', 'AnchorFree', 'HotSpot', 'AlohaMobile', 'iCloudPrivateRelay', 'OperaMini_Socks'))
+      GROUP BY subscriber_id
+      HAVING tiktok_connections > 0 AND vpn_connections > 0
+      ORDER BY vpn_connections DESC
+      LIMIT 50
+
+  - question: Share of each ISP in Karachi's data volume last week
+    notes: A share of a total uses a window over the rows; volume can be shared out, users cannot.
+    sql: |
+      SELECT client_asn AS isp,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb,
+             round(100 * sum(c2s_byte_num + s2c_byte_num) / sum(sum(c2s_byte_num + s2c_byte_num)) OVER (), 1) AS share_pct
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Karachi Pakistan'
+        AND client_asn != ''
+      GROUP BY isp
+      ORDER BY sum(c2s_byte_num + s2c_byte_num) DESC
+      LIMIT 20
+
+  - question: Which countries do Facebook's servers serve Pakistani users from
+    notes: Where servers are = server_location; its country is the last part, so group by the value.
+    sql: |
+      SELECT server_location,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND server_asn IN ('Facebook, Inc.')
+        AND server_location != ''
+      GROUP BY server_location
+      ORDER BY connections DESC
+      LIMIT 20
+
+  - question: How much traffic went to servers in Russia last week, by app
+    notes: Servers in a country = endsWith(server_location, '<Country>').
+    sql: |
+      SELECT app_label AS app,
+             count() AS connections,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND endsWith(server_location, 'Russia')
+      GROUP BY app
+      ORDER BY connections DESC
+      LIMIT 20
+
+  - question: Which app does the domain graph.facebook.com belong to, and which servers answer it
+    notes: A hostname is looked up in requested_server; app_label, server_asn and server_location describe it.
+    sql: |
+      SELECT app_label AS app,
+             server_asn,
+             server_location,
+             count() AS connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-09 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND requested_server = 'graph.facebook.com'
+      GROUP BY app, server_asn, server_location
+      ORDER BY connections DESC
+      LIMIT 20
+
+  - question: Top uploaders last week (people who send the most data)
+    notes: Upload = c2s_byte_num (from the subscriber). A list of people.
+    sql: |
+      SELECT subscriber_id,
+             round(sum(c2s_byte_num) / 1e6, 2) AS upload_mb,
+             round(sum(s2c_byte_num) / 1e6, 2) AS download_mb,
+             count() AS connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND position(subscriber_id, '_') = 0
+      GROUP BY subscriber_id
+      ORDER BY sum(c2s_byte_num) DESC
+      LIMIT 20
+
+  - question: How long do people spend on YouTube per day in Lahore
+    notes: Time spent = sum(duration) (milliseconds) per subscriber, then averaged over subscribers and days.
+    sql: |
+      SELECT toDate(toDateTime(start_time, 'Asia/Karachi')) AS day,
+             round(sum(duration) / 3.6e6 / uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0), 2) AS hours_per_user,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Lahore Pakistan'
+        AND app_label IN ('Youtube_QUIC_Video', 'Youtube_SSL_Video', 'Youtube_NonHTTP_Video', 'Youtube_Others', 'Youtube_Upload', 'YouTubeMusic')
+        AND position(subscriber_id, '_') = 0
+      GROUP BY day
+      ORDER BY day
+
+  - question: Compare this week with the week before for WhatsApp, by connections and volume
+    notes: Two periods side by side with countIf/sumIf on the period, one row per measure.
+    sql: |
+      SELECT countIf(start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')) AS connections_this_week,
+             countIf(start_time <  toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')) AS connections_previous_week,
+             round(sumIf(c2s_byte_num + s2c_byte_num, start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')) / 1e9, 2) AS volume_gb_this_week,
+             round(sumIf(c2s_byte_num + s2c_byte_num, start_time <  toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')) / 1e9, 2) AS volume_gb_previous_week
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-10-27 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND app_label IN ('WhatsAPP', 'WhatsAPP_Web', 'WhatsApp_Login', 'WhatsApp_VoIP')
+
+  - question: Which subscribers tried to open blocked sites most last week, and which sites
+    notes: Blocked = block_type > 0. A list of people with the sites they tried.
+    sql: |
+      SELECT subscriber_id,
+             count() AS blocked_connections,
+             uniq(requested_server) AS blocked_sites,
+             groupUniqArray(5)(requested_server) AS example_sites
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND position(subscriber_id, '_') = 0
+        AND block_type > 0
+      GROUP BY subscriber_id
+      ORDER BY blocked_connections DESC
+      LIMIT 20
+
+  - question: Users per area of Islamabad (Sector C, Block A...) last week
+    notes: The area is the 3rd part of loc; area names repeat in every city, so filter the city too.
+    sql: |
+      SELECT trim(splitByString(', ', loc)[3]) AS area,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             count() AS connections,
+             round(sum(c2s_byte_num + s2c_byte_num) / 1e9, 2) AS volume_gb
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND client_location = 'Islamabad Pakistan'
+        AND loc != ''
+      GROUP BY area
+      ORDER BY users DESC, connections DESC
+
+  - question: Night-time (00:00-06:00) users of dating apps by city last week
+    notes: Night is an hour filter on Pakistan time, not a period.
+    sql: |
+      SELECT replaceOne(client_location, ' Pakistan', '') AS city,
+             uniqExactIf(subscriber_id, position(subscriber_id, '_') = 0) AS users,
+             count() AS connections
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND toHour(toDateTime(start_time, 'Asia/Karachi')) < 6
+        AND app_label IN ('Tinder', 'Badoo', 'Jaumo', 'Grindr', 'Blued', 'HeeSay', 'SayHi', 'Chamet')
+        AND client_location NOT IN ('Pakistan', 'Punjab Pakistan', '')
+      GROUP BY city
+      ORDER BY users DESC, connections DESC
+      LIMIT 20
+
+  - question: Which mobile subscribers changed handset (more than one IMEI) last week
+    notes: Per subscriber, distinct non-empty IMEIs. Mobile numbers only carry imei.
+    sql: |
+      SELECT subscriber_id,
+             uniqExactIf(imei, imei != '') AS handsets,
+             groupUniqArrayIf(5)(imei, imei != '') AS imeis
+      FROM wms_dist.ntc_ssl_log
+      WHERE start_time >= toUnixTimestamp('2026-11-03 00:00:00', 'Asia/Karachi')
+        AND start_time <  toUnixTimestamp('2026-11-10 00:00:00', 'Asia/Karachi')
+        AND imsi != ''
+      GROUP BY subscriber_id
+      HAVING handsets > 1
+      ORDER BY handsets DESC
+      LIMIT 50

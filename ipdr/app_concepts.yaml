@@ -1,0 +1,202 @@
+adult_content:
+  description: Pornographic / adult-content websites and apps (18+). The data has no age information, so "adult" in a question means this.
+  synonyms: [adult, adults, porn, porno, pornography, xxx, sex, sexual, nsfw, "18+", explicit, erotic, nude, "blue film", "blue films", "gandi", "gandi videos", "gandi video", "ganday", "ganday videos", "fahash", "fahashi", "behuda", "adult videos", "adult video", "adult sites", "porn videos", "porn sites", "sex videos", "xxx videos"]
+  labels: [Xhamster, Pornhub, Xnxx, Xvideos]
+  hosts: "(^|\\.)(xhamster[0-9]*|pornhub|xnxx|xnxx-cdn|xvideos|xvideos-cdn|onlyfans|chaturbate|stripchat|spankbang|eporner|youporn|redtube|brazzers|livejasmin|tube8|hentai)\\."
+
+dating:
+  description: Dating and meet-new-people apps.
+  synonyms: [dating, "dating apps", hookup, tinder, matchmaking, "rishta", "shaadi", "friendship apps", "meet people"]
+  labels: [Tinder, Badoo, Jaumo, Grindr, Blued, HeeSay, SayHi, Chamet]
+
+social_media:
+  description: Social networks and short-video social apps.
+  synonyms: ["social media", "social network", "social networks", "social apps", "social platforms", reels, "short video", "short videos"]
+  labels: [Facebook, Facebook_QUIC, Facebook_Video, Facebook_QUIC_Video, Facebook_Upload, Instagram, Instagram_NonHTTP_Video,
+           TikTok, TikTok_NonHTTP_Video, TikTok_Live, TikTok_Upload, TikTok_OpenLive, SnapChat, Twitter, Twitter_Upload,
+           Pinterest, LinkedIn, Reddit, Tumblr, Vkontakte, Odnoklassniki, Like, Microblog_Sina, KuaiShou, SnackVideo,
+           DouYin_P2P_Video, Imgur, Flickr, Giphy, Riffsy]
+
+tiktok:
+  description: Every TikTok label (app, video, live, upload).
+  synonyms: [tiktok, "tik tok", "tick tock", douyin]
+  labels: [TikTok, TikTok_NonHTTP_Video, TikTok_Live, TikTok_Upload, TikTok_OpenLive, DouYin_P2P_Video]
+
+facebook:
+  description: Every Facebook label (app, video, upload, Messenger).
+  synonyms: [facebook, fb, meta, messenger]
+  labels: [Facebook, Facebook_QUIC, Facebook_Video, Facebook_QUIC_Video, Facebook_Upload, Facebook_Messenger_IM]
+
+youtube:
+  description: Every YouTube label (videos, music, uploads, other traffic).
+  synonyms: [youtube, yt, "you tube"]
+  labels: [Youtube_QUIC_Video, Youtube_SSL_Video, Youtube_NonHTTP_Video, Youtube_Others, Youtube_Upload, YouTubeMusic, GoogleVideoTranscoding]
+
+whatsapp:
+  description: Every WhatsApp label (chat, web, login, calls).
+  synonyms: [whatsapp, "whats app", wa, "watsapp", "whatsup"]
+  labels: [WhatsAPP, WhatsAPP_Web, WhatsApp_Login, WhatsApp_VoIP]
+
+instagram:
+  description: Every Instagram label.
+  synonyms: [instagram, insta, ig]
+  labels: [Instagram, Instagram_NonHTTP_Video]
+
+messaging:
+  description: Chat and messaging apps.
+  synonyms: [messaging, messenger, messengers, chatting, "chat apps", "messaging apps", "instant messaging", texting]
+  labels: [WhatsAPP, WhatsAPP_Web, WhatsApp_Login, SnapChat, IMO, Skype_IM, Facebook_Messenger_IM, Telegram_Messenger, Viber_IM,
+           Signal_Private_Messenger, Wechat_IM, Zalo, KaKaoTalk_IM, Line_IM, Discord, BOTIM, Threema, Zangi, GoChatMessenger,
+           GoogleChat, IMessage, Slack, MicrosoftTeams, Totok, Mico, Ronghub]
+
+calls:
+  description: Voice and video calling and online meetings.
+  synonyms: [calls, calling, "voice call", "voice calls", "video call", "video calls", voip, meetings, "online meeting", "online meetings", conference, "call apps"]
+  labels: [Zoom, Zoom_TCPHeartBeat, GoogleMeet, MicrosoftTeams, MicrosoftTeams_VoIP, WebEX, AgoraVideoCall, WhatsApp_VoIP, IMO_VoIP,
+           SnapChat_VoIP, Skype_IM, BOTIM, Totok, Welink, Slack_VoIP, TrueCaller, Ring]
+
+video_streaming:
+  description: Watching video - YouTube, films, series, sports and video sites (not short-video social apps).
+  synonyms: [videos, streaming, "video streaming", "video apps", movies, movie, films, film, series, drama, dramas, ott, "watch videos", "online tv", "sports streaming"]
+  labels: [Youtube_QUIC_Video, Youtube_SSL_Video, Youtube_NonHTTP_Video, Youtube_Others, Youtube_Upload, GoogleVideoTranscoding,
+           Netflix, Netflix_NonHTTP_Video, AmazonInstantVideo, AmazonInstantVideo_Video, HBOMax, StarzPlay, Crunchyroll,
+           Dailymotion_NonHTTP_Video, DailyMotion_Others, Vimeo_Others, iQIYI_Others, MangGuoTV, Bilibili_NonHTTP_Video, Rutube,
+           SapoVideo, TwitchTV_Others, Kick, Beinsports, MLBTV, CNN_Video_Others, HuaWeiShiPin, VivaVideo, SnapTube, XBOX_Video,
+           Espn_HTTPS, Imdb]
+
+live_streaming:
+  description: Live-streaming and live video-chat apps.
+  synonyms: ["live stream", "live streams", "live streaming", "going live", "live video", "live chat", "live apps"]
+  labels: [Bigo, Bigo_IP, PoppoLive, YallaGroup, Vshow, Mico, Chamet, SparkLive, TikTok_Live, TikTok_OpenLive, Kick, TwitchTV_Others, JACO]
+
+music:
+  description: Music and audio streaming.
+  synonyms: [music, songs, gaana, "gaanay", podcast, podcasts, "music apps", "audio streaming"]
+  labels: [Spotify, Itunes, Boomplay, SoundCloud, YouTubeMusic, Deezer, Zing_MP3, Shazam]
+
+entertainment:
+  description: Entertainment as a whole - video streaming, live streaming, music and games together.
+  synonyms: [entertainment, "entertainment apps", "fun apps", tafreeh, "time pass", timepass, "leisure apps"]
+  includes: [video_streaming, live_streaming, music, gaming]
+
+gaming:
+  description: Online games, game stores and game services.
+  synonyms: [games, gaming, gamer, gamers, "online games", "mobile games", "game apps", pubg, "free fire"]
+  labels: [Roblox, Roblox_Game, FreeFire, Tencent_Game_Common, TencentGamesHelp, PUBG_Mobile, PUBG_Mobile_Download, PUBG_HeartBeat, PUBG,
+           Unity3D, CandyCrush, Garena_Game, YallaGame, YallaLudo, HelixJump, Miniclippt, MiniClip, PS_Game, PS_Update, XBOX_Live,
+           XBOX_Others, 8BallPool, GameLoft, GameCenter, Outfit, SuperCell_Common, Minecraft, Steam_Game, Steam_Download,
+           Steamcommunity, SubwaySurfers, Rockstargames, Playrix, Voodoo, CallOfDuty, WangYi_Game_Common, PES, Mihoyo, Fortnite,
+           ROV, Township, Blizzard, Socialpoint, ClashOfClans, ClashRoyale, BlockmanGo, Biligame, Ubisoft, LOL, Riotgames, Riot,
+           Microsoft_Game_Data, Valorant, ToonBlast, Zynga, Gardenscapes, Homescapes, EaFIFA, EAGamesFlat, Wargaming, Netmarble,
+           RocketLeague, Activision, TheDivision, HonKaiStarRail, Gtarcade, Simcitybuildit, Gametaptap, WII_Data, Genshin,
+           DreamLeagueSoccer, MoonActive, Vivox, OculusVR]
+
+vpn_proxy:
+  description: VPNs, proxies and privacy relays (used to hide or tunnel traffic).
+  synonyms: [vpn, vpns, proxy, proxies, tunnel, tunneling, tunnelling, "hide ip", anonymizer, "private relay", "bypass"]
+  labels: [NordVPN, SurfsharkVPN, ZenmateVPN, PrivateVPN, WindscribeVPN, ProtonVPN, HolaVPN, ExpressVPN, VPNSuperUnlimitedProxy,
+           Cloudflare_Warp, SuperVPN, TurboVPN, TouchVPN, CyberGhost, VyprVPN, VpnMaster, AnchorFree, HotSpot, AlohaMobile,
+           iCloudPrivateRelay, OperaMini_Socks]
+
+ai_assistants:
+  description: AI chatbots and assistants.
+  synonyms: [ai, "a.i.", "artificial intelligence", chatbot, chatbots, "ai chat", "ai apps", "ai tools", llm, gpt, chatgpt, deepseek]
+  labels: [ChatGPT, OpenAI, DeepSeek, DouBao, Apple_Siri, Quillbot]
+
+search:
+  description: Search engines.
+  synonyms: ["search engine", "search engines", googling, "web search"]
+  labels: [GoogleSearch_Encrypted, GoogleSearch, Bing, YahooSearch_HTTPS, BaiDu_Common, Yandex_Common]
+
+browsers:
+  description: Web browser apps (their own traffic).
+  synonyms: [browser, browsers, "web browser", "web browsers"]
+  labels: [UCWeb, OperaMobile, OperaMini_Socks, Mozilla, AlohaMobile]
+
+shopping:
+  description: Online shopping and marketplaces.
+  synonyms: [shopping, ecommerce, "e-commerce", "online shopping", marketplace, marketplaces, khareedari, "shopping apps"]
+  labels: [Amazon, Shopify, Lazada, Aliexpress, AliBaBa_Service, OLX, Walmart, eBay, Shopee, Mercadolibre, Nike, Trustpilot]
+
+finance:
+  description: Banking, payments, cards and crypto.
+  synonyms: [bank, banking, payment, payments, wallet, "mobile wallet", finance, crypto, cryptocurrency, "credit card", stocks, "stock market"]
+  labels: [Paypal, Alipay, MasterCard, EmiratesNBD, Ethereum, TongHuaShun]
+
+gambling:
+  description: Betting and gambling.
+  synonyms: [gambling, betting, casino, casinos, jua, satta, "betting apps", "betting sites", "casino sites", bet, bets]
+  labels: [Bet365]
+  hosts: "(^|\\.)(bet365|1xbet[a-z0-9]*|melbet|parimatch|mostbet|dafabet|10cric|4rabet|jeetwin|krikya|betway|22bet|betwinner|linebet|woocasino[0-9]*|royalxcasino|pkrbet[0-9]*|bajisitan)\\.|\\.casino$"
+
+travel_transport:
+  description: Travel booking, airlines, ride-hailing.
+  synonyms: [travel, "travel apps", hotel, hotels, flights, airline, airlines, taxi, cab, "ride hailing", careem, uber]
+  labels: [Booking, Agoda, Airbnb, TripAdvisor, Trivago, Emirates, Careem, Grab]
+
+food_delivery:
+  description: Food delivery.
+  synonyms: ["food delivery", "food apps", restaurant, restaurants, foodpanda]
+  labels: [UberEats, Zomato]
+
+maps_navigation:
+  description: Maps, navigation and location sharing.
+  synonyms: [maps, "maps app", "map apps", navigation, gps, directions, "google maps"]
+  labels: [AppleMap, GoogleMap, Google_Earth, HereMap, BingMap, YandexMaps, Find_My_Friends]
+
+email:
+  description: Email services and mail protocols.
+  synonyms: [email, emails, "e-mail", inbox, gmail, outlook, "mail apps"]
+  labels: [WEBMAIL_GMAIL, Mail.ru, OutLook, IMAP_SSL, WEBMAIL_Yahoo, POP3_SSL, SMTP_SSL, ZohoMail, IMAPV4, SMTP]
+
+cloud_storage:
+  description: Personal cloud storage, backup and file sharing (not cloud infrastructure).
+  synonyms: ["cloud storage", backup, backups, "file sharing", "google drive", onedrive, icloud, dropbox]
+  labels: [AppleiCloud, SamsungCloud, HuaWeiMobileCloud, GoogleDrive, OneDrive, Dropbox, NS_MegaUpload_Download, GooglePhotos, SHAREit]
+
+productivity:
+  description: Office, work and design tools.
+  synonyms: ["office apps", "ms office", productivity, documents, docs, "design apps", "work apps"]
+  labels: [Office, MS_Common, Canva, Atlassian, Salesforce, Zendesk, Scribd, Adobe_Reader_Acrobat, Intercom, PicsArt, Envatousercontent]
+
+education:
+  description: Learning and education.
+  synonyms: [education, "education apps", learning, "e-learning", classroom, parhai]
+  labels: [GoogleClassroom, ClassDojo, Wikipedia, Quillbot, Scribd]
+
+news:
+  description: News, weather and sports news.
+  synonyms: [news, khabar, khabrain, weather, mausam, "sports news", "news apps"]
+  labels: [BBC, Nytimes, CNN_Video_Others, Tribunnews, Espn_HTTPS, Weather, Weatherlive, Sky_Com]
+
+app_stores_updates:
+  description: App stores and software updates.
+  synonyms: ["app store", "app stores", "play store", playstore, "software update", "software updates", "os update", "system update"]
+  labels: [googleplay, googleplay_Download, AppStore_Others, AppStore_Download, Vivo_AppStore, Apple_OTA, Windows_Update, Adobe_Update]
+
+security_antivirus:
+  description: Antivirus and security software.
+  synonyms: [antivirus, "anti virus", "security software", "security apps"]
+  labels: [Trend_Micro_Update, Avast_Update, McAfee_Update, Kaspersky_Update, AviraAntivirusSecurity, Norton, Malwarebytes,
+           SymantecLiveUpdate, Bitdefender, Sophos, Sophosxl]
+
+smart_home:
+  description: Smart-home, IoT and camera apps.
+  synonyms: [iot, "smart home", "smart devices", cctv, "security cameras"]
+  labels: [GoogleHome, MiJia, TuyaSmart, SmartThings, samsungiotcloud, EZVIZ]
+
+remote_access:
+  description: Remote desktop and remote control.
+  synonyms: ["remote desktop", "remote access", "remote control", anydesk, teamviewer, rdp]
+  labels: [Anydesk, RDP, X224]
+
+ads_tracking:
+  description: Advertising, analytics and tracking traffic that apps send in the background (not something a person chooses to use).
+  synonyms: [ads, advertising, adverts, "ad traffic", trackers, "tracking traffic"]
+  labels: [Vungle, Liftoff, GoogleAdsense, DoubleClick, Applovin, Appsflyer, Chartboost, Adjust, Appmeasurement, Scorecardresearch,
+           Adnxs, Adsafeprotected, Openx, Demdex, Flurry, Appnext, Eyeota, TeadsTV, Parsely, GoogleAnalytics, Crashlytics]
+
+attacks:
+  description: Traffic the classifier flagged as an attack.
+  synonyms: [attack, attacks, "syn flood", ddos, "malicious traffic"]
+  labels: [SYN_Payload_Attack]

@@ -1,0 +1,17 @@
+{
+    "sqltools.connections": [
+        {
+            "server": "http://localhost",
+            "port": 8123,
+            "database": "wms_dist",
+            "useJWT": false,
+            "requestTimeout": 30000,
+            "enableTls": false,
+            "previewLimit": 50,
+            "password": "ipdrpass@123",
+            "username": "ipdruser",
+            "driver": "ClickHouse",
+            "name": "WMS ClickHouse"
+        }
+    ]
+}
